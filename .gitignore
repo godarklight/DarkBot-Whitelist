@@ -1,0 +1,4 @@
+*.userprefs
+[Bb]in/
+[Oo]bj/
+.vscode/launch.json
