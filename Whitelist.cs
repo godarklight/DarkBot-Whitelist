@@ -44,11 +44,17 @@ namespace DarkBot.Whitelist
             SlashCommandBuilder scb = new SlashCommandBuilder();
             scb.WithName("whitelist");
             scb.WithDescription("Setup whitelists for other modules");
-            scb.AddOption("list", ApplicationCommandOptionType.SubCommand, "List whitelists");
 
             List<ChannelType> channelTypes = new List<ChannelType>();
             channelTypes.Add(ChannelType.Text);
             channelTypes.Add(ChannelType.Category);
+
+            SlashCommandOptionBuilder list = new SlashCommandOptionBuilder();
+            list.WithName("list");
+            list.WithType(ApplicationCommandOptionType.SubCommand);
+            list.WithDescription("List whitelists");
+            list.AddOption("whitelistname", ApplicationCommandOptionType.String, "Show detail about a whitelist");
+            scb.AddOption(list);
 
             SlashCommandOptionBuilder destroy = new SlashCommandOptionBuilder();
             destroy.WithName("destroy");
@@ -108,11 +114,28 @@ namespace DarkBot.Whitelist
             }
             if (opt.Name == "list")
             {
-                StringBuilder sb = new StringBuilder();
-                sb.AppendLine("Current whitelists:");
-                foreach (string value in database.Keys)
+                SocketSlashCommandDataOption optList = opt.Options.FirstOrDefault<SocketSlashCommandDataOption>();
+                string listName = null;
+                if (optList != null)
                 {
-                    sb.AppendLine(value);
+                    listName = (string)optList.Value;
+                }
+                StringBuilder sb = new StringBuilder();
+                if (listName == null || !database.ContainsKey(listName))
+                {
+                    sb.AppendLine("Current whitelists:");
+                    foreach (string value in database.Keys)
+                    {
+                        sb.AppendLine(value);
+                    }
+                }
+                else
+                {
+                    sb.AppendLine($"Detail for {listName}:");
+                    foreach (ulong value in database[listName])
+                    {
+                        sb.AppendLine($"{value} = <#{value}>");
+                    }
                 }
                 await command.RespondAsync(sb.ToString());
             }
