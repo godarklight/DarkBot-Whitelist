@@ -1,8 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using DarkBot;
+using Discord;
 using Discord.WebSocket;
 
 namespace DarkBot.Whitelist
@@ -22,27 +25,115 @@ namespace DarkBot.Whitelist
             }
             Load();
             _client = services.GetService(typeof(DiscordSocketClient)) as DiscordSocketClient;
-            _client.MessageReceived += MessageReceived;
+            _client.Ready += SetupCommands;
+            _client.SlashCommandExecuted += HandleCommand;
             return Task.CompletedTask;
         }
 
-        private async Task MessageReceived(SocketMessage message)
+        private async Task SetupCommands()
         {
-            SocketTextChannel stc = message.Channel as SocketTextChannel;
-            SocketGuildUser sgu = message.Author as SocketGuildUser;
-            if (stc == null || sgu == null || message.Author.IsBot)
+            foreach (SocketApplicationCommand sac in await _client.GetGlobalApplicationCommandsAsync())
+            {
+                if (sac.Name == "whitelist")
+                {
+                    Log(LogSeverity.Info, "Commands already registered");
+                    return;
+                }
+            }
+            Log(LogSeverity.Info, "Setting up commands");
+            SlashCommandBuilder scb = new SlashCommandBuilder();
+            scb.WithName("whitelist");
+            scb.WithDescription("Setup whitelists for other modules");
+            scb.AddOption("list", ApplicationCommandOptionType.SubCommand, "List whitelists");
+
+            List<ChannelType> channelTypes = new List<ChannelType>();
+            channelTypes.Add(ChannelType.Text);
+            channelTypes.Add(ChannelType.Category);
+
+            SlashCommandOptionBuilder destroy = new SlashCommandOptionBuilder();
+            destroy.WithName("destroy");
+            destroy.WithType(ApplicationCommandOptionType.SubCommand);
+            destroy.WithDescription("Destroy a whitelist");
+            destroy.AddOption("destroylist", ApplicationCommandOptionType.String, "Name of the whitelist to destroy", isRequired: true);
+            scb.AddOption(destroy);
+
+            SlashCommandOptionBuilder add = new SlashCommandOptionBuilder();
+            add.WithName("add");
+            add.WithDescription("Add a channel or category to a whitelist");
+            add.WithType(ApplicationCommandOptionType.SubCommand);
+            add.AddOption("addselect", ApplicationCommandOptionType.String, "Selected whitelist", isRequired: true);
+            add.AddOption("addchannel", ApplicationCommandOptionType.Channel, "Selected channel", isRequired: true, channelTypes: channelTypes);
+            scb.AddOption(add);
+
+            SlashCommandOptionBuilder remove = new SlashCommandOptionBuilder();
+            remove.WithName("remove");
+            remove.WithDescription("Remove a channel or category from a whitelist");
+            remove.WithType(ApplicationCommandOptionType.SubCommand);
+            remove.AddOption("removeselect", ApplicationCommandOptionType.String, "Selected whitelist", isRequired: true);
+            remove.AddOption("removechannel", ApplicationCommandOptionType.Channel, "Selected channel", isRequired: true, channelTypes: channelTypes);
+            scb.AddOption(remove);
+
+            await _client.CreateGlobalApplicationCommandAsync(scb.Build());
+        }
+
+        private async Task HandleCommand(SocketSlashCommand command)
+        {
+            if (command.CommandName != "whitelist")
             {
                 return;
             }
-            if (!sgu.GuildPermissions.ManageChannels)
+            SocketGuildChannel sgc = command.Channel as SocketGuildChannel;
+            if (sgc == null)
             {
+                await command.RespondAsync("This command can only be used from within a guild");
+            }
+            SocketGuildUser sgu = sgc.GetUser(command.User.Id);
+            if (sgu == null)
+            {
+                await command.RespondAsync("This command can only be used from within a guild");
                 return;
             }
-            if (!message.Content.StartsWith(".whitelist"))
+            if (!sgu.GuildPermissions.Administrator && !sgu.GuildPermissions.ManageChannels)
             {
+                await command.RespondAsync("This command is an admin only command");
                 return;
             }
-            await ProcessMessage(stc, message);
+            SocketSlashCommandDataOption opt = command.Data.Options.First<SocketSlashCommandDataOption>();
+            if (opt.Name == "destroy")
+            {
+                SocketSlashCommandDataOption optList = opt.Options.First<SocketSlashCommandDataOption>((x) => { return x.Name == "removeselect"; });
+                string list = (string)optList.Value;
+                await command.RespondAsync($"Removed {list}");
+                Remove(list);
+            }
+            if (opt.Name == "list")
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.AppendLine("Current whitelists:");
+                foreach (string value in database.Keys)
+                {
+                    sb.AppendLine(value);
+                }
+                await command.RespondAsync(sb.ToString());
+            }
+            if (opt.Name == "add")
+            {
+                SocketSlashCommandDataOption optList = opt.Options.First<SocketSlashCommandDataOption>((x) => { return x.Name == "addselect"; });
+                SocketSlashCommandDataOption optChannel = opt.Options.First<SocketSlashCommandDataOption>((x) => { return x.Name == "addchannel"; });
+                string list = (string)optList.Value;
+                SocketChannel sc = (SocketChannel)optChannel.Value;
+                await command.RespondAsync($"Added {sc.Id} to {list}");
+                Add(list, sc.Id);
+            }
+            if (opt.Name == "remove")
+            {
+                SocketSlashCommandDataOption optList = opt.Options.First<SocketSlashCommandDataOption>((x) => { return x.Name == "removeselect"; });
+                SocketSlashCommandDataOption optChannel = opt.Options.First<SocketSlashCommandDataOption>((x) => { return x.Name == "removechannel"; });
+                string list = (string)optList.Value;
+                SocketChannel sc = (SocketChannel)optChannel.Value;
+                await command.RespondAsync($"Removed {sc.Id} from {list}");
+                Remove(list, sc.Id);
+            }
         }
 
         /*Usage:
@@ -190,6 +281,12 @@ namespace DarkBot.Whitelist
                 return database[key].Contains(objectID);
             }
             return false;
+        }
+
+        private void Log(LogSeverity severity, string text)
+        {
+            LogMessage logMessage = new LogMessage(severity, "Whitelist", text);
+            Program.LogAsync(logMessage);
         }
     }
 }

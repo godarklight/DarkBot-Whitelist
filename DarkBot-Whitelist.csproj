@@ -4,8 +4,12 @@
     <ProjectReference Include="..\DarkBot\DarkBot.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Discord.Net" Version="3.2.0" />
+  </ItemGroup>
+
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFramework>net6.0</TargetFramework>
     <RootNamespace>DarkBot_Whitelist</RootNamespace>
   </PropertyGroup>
 
